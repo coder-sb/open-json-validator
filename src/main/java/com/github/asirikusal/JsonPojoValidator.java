@@ -1,4 +1,4 @@
-package lk.open.validator;
+package com.github.asirikusal;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;

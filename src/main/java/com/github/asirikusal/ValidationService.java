@@ -1,4 +1,4 @@
-package lk.open.validator;
+package com.github.asirikusal;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -7,24 +7,17 @@ import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
 import java.util.regex.Pattern;
 
-import lk.open.validator.model.ErrorMessage;
-import lk.open.validator.model.ErrorWrapper;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
+import com.github.asirikusal.model.ErrorMessage;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 
 @Service
-public class DynamicJsonValidator {
-    private final static Logger LOGGER = LogManager.getLogger(DynamicJsonValidator.class);
-    @Autowired
-    @Qualifier("validationSchema")
-    Map<String, Object> getValidationSchema;
-    List<Map<String, Map<Integer, Boolean>>> mapList = new ArrayList<>();
+public class ValidationService {
+    private List<Map<String, Map<Integer, Boolean>>> mapList = new ArrayList<>();
     private String validationLevel;
     private String schemaValidationKey;
     private String validationMsg;
@@ -33,20 +26,11 @@ public class DynamicJsonValidator {
     private boolean isFieldExist = false;
     private List<String> readCompletedKeys = new ArrayList<>();
 
-    public ErrorWrapper errorList(Map<String, Object> jsonMap, String schema) {
-        List<ErrorMessage> errorList = new ArrayList<>();
-        ErrorWrapper errorWrapper = new ErrorWrapper();
-        Map<String, Object> validationMap = (Map<String, Object>) getValidationSchema.get("validationSchema");
-        validateMandatoryFieldsInJsonMap(jsonMap, (Map<String, Object>) validationMap.get(schema),
-                                         errorList);
-        validateJsonMap(jsonMap, (Map<String, Object>) validationMap.get(schema), "root",
-                        errorList, null);
-        errorWrapper.setErrorList(errorList);
-        return errorWrapper;
-    }
-
-    public List<ErrorMessage> validateJsonMap(Map<String, Object> stringObjectMap, Map<String, Object> validationMap,
-                                              String subLevelKey, List<ErrorMessage> errorList, Integer index) {
+    @Async
+    public CompletableFuture<List<ErrorMessage>> validateJsonMap(Map<String, Object> stringObjectMap,
+                                                                 Map<String, Object> validationMap,
+                                                                 String subLevelKey, List<ErrorMessage> errorList,
+                                                                 Integer index) {
         for (Map.Entry<String, Object> entry : stringObjectMap.entrySet()) {
             String key = entry.getKey();
             Object value = entry.getValue();
@@ -71,21 +55,28 @@ public class DynamicJsonValidator {
                 for (Map<String, String> validation : validationSubMap) {
                     String validationValue = validation.get("level");
                     String validationKey = validation.get("key");
+                    Object type = validation.get("type");
+                    Object valueOfColumn = validation.get("valueColumnName");
                     if (validationValue.equalsIgnoreCase(subLevelKey) && validationKey.equals("common")) {
                         generateError(subLevelKey, key, value, validation, index, errorList);
                     } else if (validationValue.equalsIgnoreCase(subLevelKey) && value.equals(validationKey)) {
+                        if (Objects.nonNull(type) && type.equals("eav")) {
+                            key = getStringValue(value);
+                            value = getStringValue(stringObjectMap.get(valueOfColumn));
+                        }
                         generateError(subLevelKey, key, value, validation, index, errorList);
                     }
                 }
             }
 
         }
-        return errorList;
+        return CompletableFuture.completedFuture(errorList);
     }
 
-    public List<ErrorMessage> validateMandatoryFieldsInJsonMap(Map<String, Object> stringObjectMap,
-                                                               Map<String, Object> validationMap,
-                                                               List<ErrorMessage> errorList) {
+    @Async
+    public CompletableFuture<List<ErrorMessage>> validateMandatoryFieldsInJsonMap(Map<String, Object> stringObjectMap,
+                                                                                  Map<String, Object> validationMap,
+                                                                                  List<ErrorMessage> errorList) {
 
         List<Map<String, String>> validationSubMap = (List<Map<String, String>>) validationMap.get("mandatoryFields");
 
@@ -125,7 +116,7 @@ public class DynamicJsonValidator {
             }
             readCompletedKeys = new ArrayList<>();
         }
-        return errorList;
+        return CompletableFuture.completedFuture(errorList);
     }
 
     private Boolean checkMandatoryFields(Map<String, Object> stringObjectMap, String level, int arrayIndex) {
@@ -198,16 +189,12 @@ public class DynamicJsonValidator {
                 isFieldExist = true;
             }
         }
-//        for (Map.Entry<String, Object> entry : stringObjectMap.entrySet()) {
-//
-//        }
-
         return isFieldExist;
     }
 
     private void generateError(String subLevelKey, String key, Object value,
                                Map<String, String> validation, Integer index, List<ErrorMessage> errorList) {
-        if (!validator(value, validation.get("pattern"))) {
+        if (!checkIsValid(value, validation.get("pattern"))) {
             ErrorMessage message = new ErrorMessage();
             message.setJsonBlock(subLevelKey);
             message.setJsonField(key);
@@ -218,7 +205,7 @@ public class DynamicJsonValidator {
         }
     }
 
-    private boolean validator(Object obj, String pattern) {
+    private String getStringValue(Object obj) {
         String value = "";
         if (obj instanceof Integer) {
             value = Integer.toString((Integer) obj); //Convert int to String
@@ -236,10 +223,14 @@ public class DynamicJsonValidator {
             value = (String) obj;  //Convert long to String
         }
         if (Objects.isNull(value)) {
-            return false;
+            return value;
         }
+        return value;
+    }
+
+    private boolean checkIsValid(Object value, String pattern) {
         if (pattern.contains("\\") || pattern.contains("$") || pattern.contains("(")) {
-            return Pattern.matches(pattern, value);
+            return Pattern.matches(pattern, getStringValue(value));
         }
         return false;
     }

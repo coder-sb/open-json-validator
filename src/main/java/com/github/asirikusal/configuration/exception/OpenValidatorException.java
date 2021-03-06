@@ -1,6 +1,6 @@
-package lk.open.validator.configuration.exception;
+package com.github.asirikusal.configuration.exception;
 
-import lk.open.validator.model.ErrorWrapper;
+import com.github.asirikusal.model.ErrorWrapper;
 
 public class OpenValidatorException extends RuntimeException {
 
